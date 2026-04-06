@@ -72,7 +72,7 @@ export const WEAPON_EVOLUTION_CONFIGS: WeaponEvolutionConfig[] = [
         name: "独头弹",
         description: "低弹丸高单发，专治高血目标。",
         requirements: {
-          statLevels: { damage: 5, projectile_speed: 5 },
+          statLevels: { damage: 5, fire_rate: 5 },
           behavior: { damage_dealt: 50000 },
         },
         effects: { damageMul: 2.5, projectileSizeMul: 2.0, projectileCount: -3 },
@@ -98,7 +98,7 @@ export const WEAPON_EVOLUTION_CONFIGS: WeaponEvolutionConfig[] = [
         name: "狙击模式",
         description: "暴击能力大幅增强，单发爆发极高。",
         requirements: {
-          statLevels: { crit_up: 5, projectile_speed: 5 },
+          statLevels: { crit_up: 5, fire_rate: 5 },
           behavior: { crit_hits: 200 },
         },
         effects: { critChanceAdd: 1, critMultiplierAdd: 1.5, fireRateMul: 0.62 },

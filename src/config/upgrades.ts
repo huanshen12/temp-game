@@ -12,7 +12,7 @@ export const upgradePool: UpgradeChoice[] = [
   {
     id: "fire_rate",
     title: "射速提升",
-    description: "更高的每秒射击次数。",
+    description: "提高每秒射击次数。",
     apply: (stats) => {
       stats.fireRate += 0.35;
     },
@@ -20,17 +20,9 @@ export const upgradePool: UpgradeChoice[] = [
   {
     id: "damage_up",
     title: "子弹伤害提升",
-    description: "每枚子弹造成更高伤害。",
+    description: "每发子弹造成更高伤害。",
     apply: (stats) => {
       stats.damage += 4;
-    },
-  },
-  {
-    id: "projectile_speed",
-    title: "子弹速度提升",
-    description: "子弹飞得更快，命中更稳定。",
-    apply: (stats) => {
-      stats.projectileSpeed = Math.min(520, stats.projectileSpeed + 25);
     },
   },
   {
@@ -60,7 +52,7 @@ export const upgradePool: UpgradeChoice[] = [
   {
     id: "pickup_range",
     title: "拾取范围提升",
-    description: "扩大吸经验的范围。",
+    description: "扩大吸收经验的范围。",
     apply: (stats) => {
       stats.pickupRadius += 10;
     },
@@ -118,7 +110,7 @@ const elementUpgradePool: UpgradeChoice[] = elementUpgradeConfigs.map((config) =
   id: config.id,
   title: config.title,
   description: config.description,
-  // Element upgrades are handled by scene-side effect state instead of PlayerStats.
+  // Element upgrades are applied by scene-side status bonus state.
   apply: () => undefined,
 }));
 

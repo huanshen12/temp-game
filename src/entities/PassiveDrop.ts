@@ -1,15 +1,11 @@
 import Phaser from "phaser";
 
 export type PassiveDropKind =
-  | "ammo_refund"
-  | "heal_on_kill"
-  | "phase_clock"
-  | "emergency_shield"
-  | "swift_steps"
-  | "reload_module"
-  | "scavenger_core"
-  | "giant_rounds"
-  | "hunter_mark"
+  | "last_stand"
+  | "blast_core"
+  | "blood_trigger"
+  | "pain_rush"
+  | "grim_resolve"
   | "threat_sensor";
 
 export class PassiveDrop {
@@ -30,15 +26,11 @@ export class PassiveDrop {
     this.title = title;
     this.description = description;
     const colorByKind: Record<PassiveDropKind, number> = {
-      ammo_refund: 0x60a5fa,
-      heal_on_kill: 0x34d399,
-      phase_clock: 0xc084fc,
-      emergency_shield: 0xfbbf24,
-      swift_steps: 0x22d3ee,
-      reload_module: 0x93c5fd,
-      scavenger_core: 0x4ade80,
-      giant_rounds: 0xfb7185,
-      hunter_mark: 0xf97316,
+      last_stand: 0xf97316,
+      blast_core: 0xfb7185,
+      blood_trigger: 0xef4444,
+      pain_rush: 0x60a5fa,
+      grim_resolve: 0xfbbf24,
       threat_sensor: 0x67e8f9,
     };
     const color = colorByKind[kind];

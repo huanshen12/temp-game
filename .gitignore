@@ -27,3 +27,4 @@ dist-ssr
 .npm-cache
 .vite-dev.out.log
 .vite-dev.err.log
+.gitee-pages/

@@ -20,6 +20,7 @@ import { getElementStatusConfig } from "../data/statusEffects";
 import { Bullet } from "../entities/Bullet";
 import { Enemy, type EnemyKind, type EnemyVariant } from "../entities/Enemy";
 import { ExperienceOrb } from "../entities/ExperienceOrb";
+import { ItemDrop, type ItemDropKind } from "../entities/ItemDrop";
 import { PassiveDrop, type PassiveDropKind } from "../entities/PassiveDrop";
 import { PlayerActor } from "../entities/PlayerActor";
 import {
@@ -111,6 +112,7 @@ export class GameScene extends Phaser.Scene {
   private bossHazards: BossHazardZone[] = [];
   private bossHazardId = 0;
   private orbs: ExperienceOrb[] = [];
+  private itemDrops: ItemDrop[] = [];
   private passiveDrops: PassiveDrop[] = [];
   private choicePaused = false;
   private pendingPlayerUpgrades = 0;
@@ -176,6 +178,7 @@ export class GameScene extends Phaser.Scene {
   };
   private gameStarted = false;
   private gameFinished = false;
+  private reviveUsed = false;
   private isMobile = false;
   private touchMoveX = 0;
   private touchMoveY = 0;
@@ -186,9 +189,23 @@ export class GameScene extends Phaser.Scene {
   private joystickCenterY = 980;
   private joystickRadius = 42;
   private joystickKnobRadius = 18;
+  private bgm?: Phaser.Sound.BaseSound;
+  private lastShootSfxAt = 0;
+  private lastEnemyHitSfxAt = 0;
+  private audioUnlocked = false;
+  private bgmVolume = 0.16;
+  private sfxVolume = 1;
+  private characterExtraShotChance = 0.2;
+  private magnetActiveUntil = 0;
 
   public constructor() {
     super("GameScene");
+  }
+
+  public preload(): void {
+    this.load.audio("bgm_loop", ["audio/bgm_loop.ogg", "audio/bgm_loop.wav"]);
+    this.load.audio("sfx_shoot", ["audio/sfx_shoot.ogg", "audio/sfx_shoot.wav"]);
+    this.load.audio("sfx_hit", ["audio/sfx_hit.ogg", "audio/sfx_hit.wav"]);
   }
 
   public create(): void {
@@ -231,10 +248,15 @@ export class GameScene extends Phaser.Scene {
       this.runStartedAt = this.time.now;
       this.gameStarted = true;
       this.setChoicePaused(false);
+      this.ensureAudioUnlocked();
+      this.startBgmIfNeeded();
       gameEvents.emit("ui:toast", { text: "战斗开始", color: "#93c5fd" });
     });
+    gameEvents.on("game:reviveByCode", () => this.tryReviveByCode());
+    gameEvents.on("audio:set", ({ bgm, sfx }: { bgm?: number; sfx?: number }) => this.setAudioLevels(bgm, sfx));
     this.time.delayedCall(0, () => {
       gameEvents.emit("ui:showStart");
+      gameEvents.emit("audio:state", { bgm: this.bgmVolume, sfx: this.sfxVolume });
     });
 
     this.time.addEvent({
@@ -251,6 +273,19 @@ export class GameScene extends Phaser.Scene {
         }
       },
     });
+
+    this.input.once("pointerdown", () => {
+      this.ensureAudioUnlocked();
+      if (this.gameStarted) {
+        this.startBgmIfNeeded();
+      }
+    });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.bgm?.stop();
+      this.bgm?.destroy();
+      this.bgm = undefined;
+    });
   }
 
   public update(time: number): void {
@@ -265,6 +300,7 @@ export class GameScene extends Phaser.Scene {
     this.updateEnemyStatusEffects(time);
     this.updateActiveSkills(time);
     this.updateReloadState(time);
+    this.updateMagnetAttraction(time);
 
     if (!this.gameStarted) {
       this.syncHud();
@@ -297,6 +333,7 @@ export class GameScene extends Phaser.Scene {
     this.resolveEnemyContact(time);
     this.resolveEnemyProjectileHit(time);
     this.collectOrbs();
+    this.collectItemDrops();
     this.collectPassiveDrops();
     this.cleanupDeadEnemies();
     this.cleanupBullets(time);
@@ -327,8 +364,7 @@ export class GameScene extends Phaser.Scene {
   private updatePlayerInput(): void {
     let vx = 0;
     let vy = 0;
-    const threatMoveMul = this.passive.threatSenseActive ? this.passive.threatSenseMoveMultiplier : 1;
-    const speed = this.player.stats.moveSpeed * this.passive.moveSpeedMultiplier * threatMoveMul;
+    const speed = this.player.stats.moveSpeed * this.getCurrentMoveMultiplier(this.time.now);
     const useTouch = this.isMobile && (Math.abs(this.touchMoveX) > 0.01 || Math.abs(this.touchMoveY) > 0.01);
     if (useTouch) {
       vx = this.touchMoveX * speed;
@@ -830,7 +866,7 @@ export class GameScene extends Phaser.Scene {
         }
         const distToPlayer = Phaser.Math.Distance.Between(x, y, this.player.sprite.x, this.player.sprite.y);
         if (distToPlayer <= 28) {
-          this.damagePlayer(20);
+          this.damagePlayer(20, "爆裂");
         }
         const blast = this.add.circle(x, y, 30, 0xfb7185, 0.34).setDepth(15);
         this.tweens.add({
@@ -896,7 +932,7 @@ export class GameScene extends Phaser.Scene {
         this.player.sprite.y,
       );
       if (distance <= hazard.circle.radius) {
-        this.damagePlayer(hazard.damage);
+        this.damagePlayer(hazard.damage, "区域");
       }
       hazard.nextDamageAt = now + hazard.damageIntervalMs;
     }
@@ -1181,7 +1217,7 @@ export class GameScene extends Phaser.Scene {
       this.startReload("弹夹打空，自动换弹");
       return;
     }
-    const interval = 1000 / this.player.stats.fireRate;
+    const interval = 1000 / (this.player.stats.fireRate * this.getCurrentFireRateMultiplier(now));
     if (now < this.lastFireAt + interval) {
       return;
     }
@@ -1192,12 +1228,49 @@ export class GameScene extends Phaser.Scene {
 
     this.lastFireAt = now;
     this.currentAmmo -= 1;
-    const baseAngle = Phaser.Math.Angle.Between(
-      this.player.sprite.x,
-      this.player.sprite.y,
-      target.sprite.x,
-      target.sprite.y,
-    );
+    if (now - this.lastShootSfxAt > 60) {
+      this.playSfx("sfx_shoot", 0.18);
+      this.lastShootSfxAt = now;
+    }
+    if (this.passive.bloodTriggerChance > 0 && Math.random() < this.passive.bloodTriggerChance) {
+      this.damagePlayer(1, "血契扳机");
+      if (this.player.isDead) {
+        return;
+      }
+    }
+    this.firePlayerVolley(now, target, 0);
+    if (Math.random() < this.characterExtraShotChance) {
+      this.time.delayedCall(80, () => {
+        if (this.player.isDead || !this.gameStarted || this.choicePaused) {
+          return;
+        }
+        const followTarget = this.findNearestEnemy(this.player.sprite.x, this.player.sprite.y);
+        if (followTarget === undefined) {
+          return;
+        }
+        this.playSfx("sfx_shoot", 0.14);
+        this.firePlayerVolley(this.time.now, followTarget, Phaser.Math.DegToRad(1.8));
+      });
+    }
+
+    while (this.bullets.length > MAX_BULLETS) {
+      const oldest = this.bullets.shift();
+      oldest?.sprite.destroy();
+    }
+
+    if (this.currentAmmo <= 0) {
+      this.startReload("弹夹打空，自动换弹");
+    }
+  }
+
+  private firePlayerVolley(now: number, target: Enemy, angleOffset: number): void {
+    const baseAngle =
+      Phaser.Math.Angle.Between(
+        this.player.sprite.x,
+        this.player.sprite.y,
+        target.sprite.x,
+        target.sprite.y,
+      ) + angleOffset;
     const spreadRad = Phaser.Math.DegToRad(10);
     const count = this.player.stats.projectileCount;
     const projectileSpeed = Phaser.Math.Clamp(this.player.stats.projectileSpeed, 280, 520);
@@ -1206,12 +1279,11 @@ export class GameScene extends Phaser.Scene {
     const recoilSpread = branch?.effects.recoilSpread ?? 0;
     const totalShots = count + chainShots;
     const totalCenterOffset = (totalShots - 1) / 2;
-
     for (let i = 0; i < totalShots; i += 1) {
       const angle = baseAngle + (i - totalCenterOffset) * (spreadRad + recoilSpread);
       const isCrit = Math.random() < this.player.stats.critChance;
       const baseDamage = isCrit ? this.player.stats.damage * this.player.stats.critMultiplier : this.player.stats.damage;
-      const damage = baseDamage * this.passive.projectileDamageMultiplier;
+      const damage = baseDamage * this.getCurrentDamageMultiplier(now);
       const bullet = new Bullet(
         this,
         this.player.sprite.x,
@@ -1224,20 +1296,8 @@ export class GameScene extends Phaser.Scene {
         isCrit,
       );
       const body = bullet.sprite.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(
-        Math.cos(angle) * projectileSpeed,
-        Math.sin(angle) * projectileSpeed,
-      );
+      body.setVelocity(Math.cos(angle) * projectileSpeed, Math.sin(angle) * projectileSpeed);
       this.bullets.push(bullet);
-    }
-
-    while (this.bullets.length > MAX_BULLETS) {
-      const oldest = this.bullets.shift();
-      oldest?.sprite.destroy();
-    }
-
-    if (this.currentAmmo <= 0) {
-      this.startReload("弹夹打空，自动换弹");
     }
   }
 
@@ -1260,10 +1320,14 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
 
-        const bossMul = enemy.kind === "normal" ? 1 : this.passive.bossDamageMultiplier;
+        const bossMul = enemy.kind === "normal" ? 1 : 1;
         const dealt = enemy.damage(bullet.damage * bossMul);
         bullet.hitEnemyIds.add(enemy.id);
         if (dealt > 0) {
+          if (now - this.lastEnemyHitSfxAt > 18) {
+            this.playSfx("sfx_hit", 0.62, Phaser.Math.FloatBetween(0.94, 1.08));
+            this.lastEnemyHitSfxAt = now;
+          }
           this.evolutionBehaviorState.damage_dealt = (this.evolutionBehaviorState.damage_dealt ?? 0) + dealt;
           if (bullet.isCrit) {
             this.evolutionBehaviorState.crit_hits = (this.evolutionBehaviorState.crit_hits ?? 0) + 1;
@@ -1302,7 +1366,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.canDamage(`enemy-${enemy.id}`, "player", now, 460)) {
         continue;
       }
-      this.damagePlayer(20);
+      this.damagePlayer(20, "碰撞");
     }
   }
 
@@ -1325,25 +1389,49 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       projectile.sprite.destroy();
-      this.damagePlayer(10);
+      this.damagePlayer(10, "弹幕");
     }
   }
 
-  private damagePlayer(amount: number): void {
+  private damagePlayer(amount: number, source: string): void {
     if (this.time.now < this.passive.invincibleUntil) {
       this.spawnText(this.player.sprite.x, this.player.sprite.y - 30, "无敌", "#93c5fd", 12);
       return;
     }
-    if (this.passive.emergencyShieldCharges > 0) {
-      this.passive.emergencyShieldCharges = Math.max(0, this.passive.emergencyShieldCharges - 1);
-      this.spawnText(this.player.sprite.x, this.player.sprite.y - 30, "护盾抵消", "#fcd34d", 12);
+
+    const now = this.time.now;
+    const wouldDie = this.player.stats.health <= amount;
+    const canDefyDeath =
+      this.passive.deathDefyCooldownMs > 0 &&
+      now >= this.passive.deathDefyNextReadyAt &&
+      wouldDie;
+    if (canDefyDeath) {
+      this.player.stats.health = 1;
+      this.passive.deathDefyNextReadyAt = now + this.passive.deathDefyCooldownMs;
+      this.passive.invincibleUntil = now + this.passive.deathDefyInvincibleMs;
+      this.spawnText(this.player.sprite.x, this.player.sprite.y - 30, "不屈触发", "#fde68a", 13);
+      this.triggerPainRush(now);
       this.refreshPassiveDetails();
       return;
     }
+
     const dealt = this.player.damage(amount);
     if (dealt > 0) {
-      this.flashHit(this.player.visual, 90);
+      this.flashHit(this.player.visual, 110);
+      this.player.visual.setTint(0xef4444);
+      this.time.delayedCall(120, () => {
+        if (this.player.visual.active) {
+          this.player.visual.clearTint();
+        }
+      });
+      // Global hit i-frame: every valid hit grants 0.5s invulnerability.
+      this.passive.invincibleUntil = Math.max(this.passive.invincibleUntil, now + 500);
       this.spawnDamageText(this.player.sprite.x, this.player.sprite.y - 18, dealt, "#fef08a");
+      if (source === "血契扳机") {
+        this.spawnText(this.player.sprite.x, this.player.sprite.y - 36, "血契 -1", "#fb7185", 11);
+      }
+      this.triggerPainRush(now);
+      this.refreshPassiveDetails();
       this.cameras.main.shake(60, 0.0017);
     }
     if (this.player.isDead) {
@@ -1351,9 +1439,84 @@ export class GameScene extends Phaser.Scene {
         this.gameFinished = true;
         this.gameStarted = false;
         this.setChoicePaused(true);
-        gameEvents.emit("ui:showGameOver");
+        gameEvents.emit("ui:showGameOver", {
+          elapsedSec: Math.floor((this.time.now - this.runStartedAt) / 1000),
+          canRevive: !this.reviveUsed,
+        });
       }
     }
+  }
+
+  private startBgmIfNeeded(): void {
+    this.ensureAudioUnlocked();
+    if (this.bgm?.isPlaying) {
+      return;
+    }
+    this.bgm = this.sound.add("bgm_loop", { loop: true, volume: this.bgmVolume });
+    this.bgm?.play();
+  }
+
+  private playSfx(key: string, volume: number, rate = 1): void {
+    this.ensureAudioUnlocked();
+    if (this.sound.get(key) == null && !this.cache.audio.exists(key)) {
+      return;
+    }
+    this.sound.play(key, { volume: volume * this.sfxVolume, rate });
+  }
+
+  private ensureAudioUnlocked(): void {
+    if (this.audioUnlocked) {
+      return;
+    }
+    try {
+      if ("unlock" in this.sound && typeof (this.sound as unknown as { unlock: () => void }).unlock === "function") {
+        (this.sound as unknown as { unlock: () => void }).unlock();
+      }
+      const soundAny = this.sound as unknown as { context?: AudioContext };
+      const ctx = soundAny.context;
+      if (ctx != null && ctx.state !== "running") {
+        void ctx.resume();
+      }
+      this.audioUnlocked = true;
+    } catch {
+      // Ignore and retry on next user gesture.
+    }
+  }
+
+  private setAudioLevels(bgm?: number, sfx?: number): void {
+    if (bgm !== undefined) {
+      this.bgmVolume = Phaser.Math.Clamp(bgm, 0, 1);
+      if (this.bgm != null) {
+        const bgmAny = this.bgm as unknown as { setVolume?: (v: number) => void; volume?: number };
+        if (typeof bgmAny.setVolume === "function") {
+          bgmAny.setVolume(this.bgmVolume);
+        } else if (typeof bgmAny.volume === "number") {
+          bgmAny.volume = this.bgmVolume;
+        }
+      }
+    }
+    if (sfx !== undefined) {
+      this.sfxVolume = Phaser.Math.Clamp(sfx, 0, 1);
+    }
+    gameEvents.emit("audio:state", { bgm: this.bgmVolume, sfx: this.sfxVolume });
+  }
+
+  private tryReviveByCode(): void {
+    if (this.reviveUsed || !this.player.isDead) {
+      return;
+    }
+    this.reviveUsed = true;
+    this.player.isDead = false;
+    this.player.sprite.setVisible(true);
+    this.player.visual.setVisible(true);
+    this.player.stats.health = Math.max(1, Math.floor(this.player.stats.maxHealth * 0.5));
+    this.player.setVelocity(0, 0);
+    this.passive.invincibleUntil = Math.max(this.passive.invincibleUntil, this.time.now + 2200);
+    this.gameFinished = false;
+    this.gameStarted = true;
+    this.setChoicePaused(false);
+    this.refreshPassiveDetails();
+    gameEvents.emit("ui:toast", { text: "神秘代码生效：原地复活", color: "#86efac" });
   }
 
   private collectOrbs(): void {
@@ -1369,6 +1532,21 @@ export class GameScene extends Phaser.Scene {
       orb.sprite.destroy();
     }
     this.orbs = this.orbs.filter((orb) => !collected.has(orb));
+  }
+
+  private collectItemDrops(): void {
+    const collected = new Set<ItemDrop>();
+    for (const item of this.itemDrops) {
+      const distance = Phaser.Math.Distance.Between(item.sprite.x, item.sprite.y, this.player.sprite.x, this.player.sprite.y);
+      if (distance <= this.player.stats.pickupRadius + 8) {
+        collected.add(item);
+        this.applyItemDrop(item.kind);
+      }
+    }
+    for (const item of collected) {
+      item.sprite.destroy();
+    }
+    this.itemDrops = this.itemDrops.filter((item) => !collected.has(item));
   }
 
   private collectPassiveDrops(): void {
@@ -1438,7 +1616,7 @@ export class GameScene extends Phaser.Scene {
       this.player.exp -= this.player.expToNext;
       this.player.level += 1;
       this.player.expToNext = Math.floor(this.player.expToNext * 1.3 + 12);
-      this.player.stats.damage *= 1.3;
+      this.player.stats.damage *= 1.1;
       this.pendingPlayerUpgrades += 1;
     }
     if (this.pendingPlayerUpgrades > 0 && !this.choicePaused) {
@@ -1693,7 +1871,7 @@ export class GameScene extends Phaser.Scene {
       damage: "damage_up",
       fire_rate: "fire_rate",
       projectile_size: "projectile_size",
-      projectile_speed: "projectile_speed",
+      projectile_speed: "fire_rate",
       penetration: "penetration_up",
       crit_up: "crit_up",
       max_ammo: "max_ammo",
@@ -1822,13 +2000,15 @@ export class GameScene extends Phaser.Scene {
         this.gameFinished = true;
         this.gameStarted = false;
         this.setChoicePaused(true);
-        gameEvents.emit("ui:showWin");
+        gameEvents.emit("ui:showWin", {
+          elapsedSec: Math.floor((this.time.now - this.runStartedAt) / 1000),
+        });
       }
       this.killCount += 1;
       this.evolutionBehaviorState.kill_count = this.killCount;
-      this.applyKillPassives();
+      this.applyKillPassives(enemy);
 
-      const shouldDropExp = enemy.kind !== "normal" || Math.random() < 0.5;
+      const shouldDropExp = enemy.kind !== "normal" || Math.random() < 0.7;
       const orbCount = !shouldDropExp ? 0 : enemy.kind === "normal" ? 1 : enemy.kind === "miniBoss" ? 6 : enemy.kind === "mainBoss" ? 12 : 22;
       for (let i = 0; i < orbCount && this.orbs.length < MAX_ORBS; i += 1) {
         const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
@@ -1838,10 +2018,11 @@ export class GameScene extends Phaser.Scene {
             this,
             enemy.sprite.x + Math.cos(angle) * distance,
             enemy.sprite.y + Math.sin(angle) * distance,
-            Math.round(enemy.expReward / orbCount),
+            Math.round((enemy.expReward / orbCount) * 1.2),
           ),
         );
       }
+      this.trySpawnItemDrop(enemy);
 
       if (enemy.kind !== "normal") {
         const option = this.getRandomPassiveOption();
@@ -1923,45 +2104,82 @@ export class GameScene extends Phaser.Scene {
     this.passive.details = buildPassiveDetails(this.passive, this.passiveLevels);
   }
 
-  private applyKillPassives(): void {
-    if (Math.random() < this.passive.ammoRefundOnKillChance) {
-      this.currentAmmo = Math.min(this.player.stats.maxAmmo, this.currentAmmo + 1);
-      this.spawnText(this.player.sprite.x, this.player.sprite.y - 32, "返还子弹 +1", "#93c5fd", 12);
+  private applyKillPassives(enemy: Enemy): void {
+    if (this.passive.killBlastRadius <= 0) {
+      return;
     }
-    if (Math.random() < this.passive.healOnKillChance) {
-      const heal = 1;
-      this.player.stats.health = Math.min(this.player.stats.maxHealth, this.player.stats.health + heal);
-      this.spawnText(this.player.sprite.x, this.player.sprite.y - 46, `回血 +${heal}`, "#86efac", 12);
+    this.triggerKillBlast(enemy.sprite.x, enemy.sprite.y, enemy.id);
+  }
+
+  private trySpawnItemDrop(enemy: Enemy): void {
+    if (enemy.kind !== "normal") {
+      return;
+    }
+    const roll = Math.random();
+    if (roll < 0.002) {
+      this.itemDrops.push(new ItemDrop(this, enemy.sprite.x, enemy.sprite.y, "magnet"));
+      this.spawnText(enemy.sprite.x, enemy.sprite.y - 28, "掉落：磁铁", "#fbbf24", 12);
+      return;
+    }
+    if (roll < 0.015) {
+      this.itemDrops.push(new ItemDrop(this, enemy.sprite.x, enemy.sprite.y, "heal_potion"));
+      this.spawnText(enemy.sprite.x, enemy.sprite.y - 28, "掉落：血瓶", "#fca5a5", 12);
     }
   }
 
-  private updatePassiveInvincible(now: number): void {
-    if (this.passive.invincibleEveryMs <= 0 || this.player.isDead) {
-      this.player.visual.setAlpha(1);
+  private applyItemDrop(kind: ItemDropKind): void {
+    if (kind === "magnet") {
+      this.magnetActiveUntil = this.time.now + 1300;
+      this.spawnText(this.player.sprite.x, this.player.sprite.y - 34, "磁铁：全图吸附", "#fbbf24", 13);
       return;
     }
-    if (now >= this.passive.nextInvincibleAt && now >= this.passive.invincibleUntil) {
-      this.passive.invincibleUntil = now + this.passive.invincibleDurationMs;
-      this.passive.nextInvincibleAt = now + this.passive.invincibleEveryMs;
-      gameEvents.emit("ui:toast", { text: "相位时钟触发：短暂无敌", color: "#93c5fd" });
+    const heal = Math.min(10, this.player.stats.maxHealth - this.player.stats.health);
+    if (heal > 0) {
+      this.player.stats.health += heal;
+      this.spawnText(this.player.sprite.x, this.player.sprite.y - 34, `血瓶 +${heal}`, "#86efac", 13);
+    } else {
+      this.spawnText(this.player.sprite.x, this.player.sprite.y - 34, "血量已满", "#cbd5e1", 12);
+    }
+  }
+
+  private updateMagnetAttraction(now: number): void {
+    if (now > this.magnetActiveUntil) {
+      return;
+    }
+    const px = this.player.sprite.x;
+    const py = this.player.sprite.y;
+    const dt = Math.max(0.001, this.game.loop.delta / 1000);
+    const speed = 1400;
+    for (const orb of this.orbs) {
+      this.moveDropTowardPlayer(orb.sprite, px, py, speed, dt);
+    }
+    for (const drop of this.passiveDrops) {
+      this.moveDropTowardPlayer(drop.sprite, px, py, speed * 0.9, dt);
+    }
+  }
+
+  private moveDropTowardPlayer(sprite: Phaser.GameObjects.Arc, px: number, py: number, speed: number, dt: number): void {
+    const dx = px - sprite.x;
+    const dy = py - sprite.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) {
+      sprite.setPosition(px, py);
+      return;
+    }
+    const step = Math.min(dist, speed * dt);
+    sprite.setPosition(sprite.x + (dx / dist) * step, sprite.y + (dy / dist) * step);
+  }
+
+  private updatePassiveInvincible(now: number): void {
+    if (this.player.isDead) {
+      this.player.visual.setAlpha(1);
+      return;
     }
     this.player.visual.setAlpha(now < this.passive.invincibleUntil ? 0.68 : 1);
   }
 
-  private updateEmergencyShield(now: number): void {
-    if (this.passive.emergencyShieldCooldownMs <= 0 || this.player.isDead) {
-      return;
-    }
-    if (this.passive.emergencyShieldCharges >= this.passive.emergencyShieldMaxCharges) {
-      return;
-    }
-    if (now < this.passive.emergencyShieldNextAt) {
-      return;
-    }
-    this.passive.emergencyShieldCharges = Math.min(this.passive.emergencyShieldMaxCharges, this.passive.emergencyShieldCharges + 1);
-    this.passive.emergencyShieldNextAt = now + this.passive.emergencyShieldCooldownMs;
-    this.refreshPassiveDetails();
-    this.spawnText(this.player.sprite.x, this.player.sprite.y - 44, "护盾充能", "#fde68a", 12);
+  private updateEmergencyShield(_now: number): void {
+    // Deprecated hook: retained to keep update loop shape stable.
   }
 
   private updateThreatSensor(): void {
@@ -2008,8 +2226,95 @@ export class GameScene extends Phaser.Scene {
     }
     this.isReloading = true;
     const threatReloadMul = this.passive.threatSenseActive ? this.passive.threatSenseReloadMultiplier : 1;
-    this.reloadEndsAt = this.time.now + this.player.stats.reloadMs * this.passive.reloadTimeMultiplier * threatReloadMul;
+    this.reloadEndsAt = this.time.now + this.player.stats.reloadMs * threatReloadMul;
     gameEvents.emit("ui:toast", { text: reason, color: "#fcd34d" });
+  }
+
+  private isLowHpTriggered(): boolean {
+    if (this.passive.lowHpThresholdRatio <= 0 || this.player.stats.maxHealth <= 0) {
+      return false;
+    }
+    return this.player.stats.health / this.player.stats.maxHealth <= this.passive.lowHpThresholdRatio;
+  }
+
+  private getCurrentMoveMultiplier(now: number): number {
+    let mul = 1;
+    if (this.isLowHpTriggered()) {
+      mul *= this.passive.lowHpMoveMultiplier;
+    }
+    if (this.passive.painRushUntil > now) {
+      mul *= this.passive.painRushMoveMultiplier;
+    }
+    if (this.passive.threatSenseActive) {
+      mul *= this.passive.threatSenseMoveMultiplier;
+    }
+    return mul;
+  }
+
+  private getCurrentFireRateMultiplier(now: number): number {
+    let mul = 1;
+    if (this.passive.painRushUntil > now) {
+      mul *= this.passive.painRushFireRateMultiplier;
+    }
+    if (this.passive.threatSenseActive) {
+      mul *= this.passive.threatSenseFireRateMultiplier;
+    }
+    return mul;
+  }
+
+  private getCurrentDamageMultiplier(now: number): number {
+    let mul = 1;
+    if (this.isLowHpTriggered()) {
+      mul *= this.passive.lowHpDamageMultiplier;
+    }
+    mul *= this.passive.bloodTriggerDamageMultiplier;
+    if (this.passive.painRushUntil > now) {
+      mul *= 1.05;
+    }
+    return mul;
+  }
+
+  private triggerPainRush(now: number): void {
+    if (this.passive.painRushDurationMs <= 0) {
+      return;
+    }
+    this.passive.painRushUntil = Math.max(this.passive.painRushUntil, now + this.passive.painRushDurationMs);
+  }
+
+  private triggerKillBlast(x: number, y: number, sourceEnemyId: number): void {
+    const radius = this.passive.killBlastRadius;
+    const baseDamage = Math.max(1, this.player.stats.damage * 0.3);
+    if (radius <= 0 || baseDamage <= 0) {
+      return;
+    }
+    const ring = this.add.circle(x, y, 6, 0xfb7185, 0.22).setDepth(14);
+    ring.setStrokeStyle(2, 0xfda4af, 0.9);
+    this.tweens.add({
+      targets: ring,
+      radius,
+      alpha: 0,
+      duration: 170,
+      ease: "Quad.Out",
+      onComplete: () => ring.destroy(),
+    });
+
+    const now = this.time.now;
+    for (const enemy of this.enemies) {
+      if (enemy.isDead || enemy.id === sourceEnemyId) {
+        continue;
+      }
+      const dist = Phaser.Math.Distance.Between(x, y, enemy.sprite.x, enemy.sprite.y);
+      if (dist > radius) {
+        continue;
+      }
+      const dealt = enemy.damage(baseDamage * this.getCurrentDamageMultiplier(now));
+      if (dealt <= 0) {
+        continue;
+      }
+      this.evolutionBehaviorState.damage_dealt = (this.evolutionBehaviorState.damage_dealt ?? 0) + dealt;
+      this.flashHit(enemy.visual, 60, enemy.eliteTintColor);
+      this.spawnDamageText(enemy.sprite.x, enemy.sprite.y - 16, dealt, "#fda4af");
+    }
   }
 
   private cleanupBullets(now: number): void {

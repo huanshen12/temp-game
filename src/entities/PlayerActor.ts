@@ -53,7 +53,7 @@ export class PlayerActor {
       maxAmmo: 8,
       reloadMs: 2000,
       expGainMultiplier: 1,
-      pickupRadius: 46,
+      pickupRadius: 56,
     };
   }
 

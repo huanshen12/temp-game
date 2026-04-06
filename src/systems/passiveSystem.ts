@@ -1,26 +1,28 @@
 import type { PassiveDropKind } from "../entities/PassiveDrop";
 
 export interface PassiveState {
-  ammoRefundOnKillChance: number;
-  healOnKillChance: number;
-  invincibleEveryMs: number;
-  invincibleDurationMs: number;
-  nextInvincibleAt: number;
-  invincibleUntil: number;
-  emergencyShieldCooldownMs: number;
-  emergencyShieldMaxCharges: number;
-  emergencyShieldCharges: number;
-  emergencyShieldNextAt: number;
-  moveSpeedMultiplier: number;
-  reloadTimeMultiplier: number;
-  projectileDamageMultiplier: number;
-  bossDamageMultiplier: number;
-  expGainMultiplier: number;
-  pickupRadiusMultiplier: number;
+  lowHpThresholdRatio: number;
+  lowHpDamageMultiplier: number;
+  lowHpMoveMultiplier: number;
+  killBlastRadius: number;
+  killBlastDamage: number;
+  bloodTriggerChance: number;
+  bloodTriggerDamageMultiplier: number;
+  painRushDurationMs: number;
+  painRushFireRateMultiplier: number;
+  painRushMoveMultiplier: number;
+  painRushUntil: number;
+  deathDefyCooldownMs: number;
+  deathDefyInvincibleMs: number;
+  deathDefyNextReadyAt: number;
   threatSenseMoveMultiplier: number;
   threatSenseReloadMultiplier: number;
+  threatSenseFireRateMultiplier: number;
   threatSenseRadius: number;
   threatSenseActive: boolean;
+  invincibleUntil: number;
+  expGainMultiplier: number;
+  pickupRadiusMultiplier: number;
   details: string[];
 }
 
@@ -33,55 +35,49 @@ export interface PassiveOption {
 export type PassiveLevels = Record<PassiveDropKind, number>;
 
 const ALL_PASSIVES: PassiveDropKind[] = [
-  "ammo_refund",
-  "heal_on_kill",
-  "phase_clock",
-  "emergency_shield",
-  "swift_steps",
-  "reload_module",
-  "scavenger_core",
-  "giant_rounds",
-  "hunter_mark",
+  "last_stand",
+  "blast_core",
+  "blood_trigger",
+  "pain_rush",
+  "grim_resolve",
   "threat_sensor",
 ];
 
 export function createPassiveState(): PassiveState {
   return {
-    ammoRefundOnKillChance: 0,
-    healOnKillChance: 0,
-    invincibleEveryMs: 0,
-    invincibleDurationMs: 0,
-    nextInvincibleAt: 0,
-    invincibleUntil: 0,
-    emergencyShieldCooldownMs: 0,
-    emergencyShieldMaxCharges: 0,
-    emergencyShieldCharges: 0,
-    emergencyShieldNextAt: 0,
-    moveSpeedMultiplier: 1,
-    reloadTimeMultiplier: 1,
-    projectileDamageMultiplier: 1,
-    bossDamageMultiplier: 1,
-    expGainMultiplier: 1,
-    pickupRadiusMultiplier: 1,
+    lowHpThresholdRatio: 0,
+    lowHpDamageMultiplier: 1,
+    lowHpMoveMultiplier: 1,
+    killBlastRadius: 0,
+    killBlastDamage: 0,
+    bloodTriggerChance: 0,
+    bloodTriggerDamageMultiplier: 1,
+    painRushDurationMs: 0,
+    painRushFireRateMultiplier: 1,
+    painRushMoveMultiplier: 1,
+    painRushUntil: 0,
+    deathDefyCooldownMs: 0,
+    deathDefyInvincibleMs: 0,
+    deathDefyNextReadyAt: 0,
     threatSenseMoveMultiplier: 1,
     threatSenseReloadMultiplier: 1,
+    threatSenseFireRateMultiplier: 1,
     threatSenseRadius: 0,
     threatSenseActive: false,
+    invincibleUntil: 0,
+    expGainMultiplier: 1,
+    pickupRadiusMultiplier: 1,
     details: [],
   };
 }
 
 export function createPassiveLevels(): PassiveLevels {
   return {
-    ammo_refund: 0,
-    heal_on_kill: 0,
-    phase_clock: 0,
-    emergency_shield: 0,
-    swift_steps: 0,
-    reload_module: 0,
-    scavenger_core: 0,
-    giant_rounds: 0,
-    hunter_mark: 0,
+    last_stand: 0,
+    blast_core: 0,
+    blood_trigger: 0,
+    pain_rush: 0,
+    grim_resolve: 0,
     threat_sensor: 0,
   };
 }
@@ -93,73 +89,45 @@ function hasPassive(levels: PassiveLevels, kind: PassiveDropKind): boolean {
 export function getPassiveOptionByKind(levels: PassiveLevels, kind: PassiveDropKind): PassiveOption {
   const ownedSuffix = hasPassive(levels, kind) ? "（已拥有）" : "";
 
-  if (kind === "ammo_refund") {
+  if (kind === "last_stand") {
     return {
       kind,
-      title: `A道具：猎弹夹${ownedSuffix}`,
-      description: "击杀普通怪有 8% 概率返还 1 发子弹。",
+      title: `绝境反击${ownedSuffix}`,
+      description: "生命低于35%时，伤害+30%，移速+18%。",
     };
   }
-  if (kind === "heal_on_kill") {
+  if (kind === "blast_core") {
     return {
       kind,
-      title: `B道具：血涌核心${ownedSuffix}`,
-      description: "击杀任意敌人有 10% 概率回复 1 点生命。",
+      title: `裂解余震${ownedSuffix}`,
+      description: "击杀敌人时触发小范围爆裂，对周围造成28点伤害。",
     };
   }
-  if (kind === "phase_clock") {
+  if (kind === "blood_trigger") {
     return {
       kind,
-      title: `C道具：相位时钟${ownedSuffix}`,
-      description: "每 18 秒触发 1.2 秒无敌。",
+      title: `血契扳机${ownedSuffix}`,
+      description: "每次射击有14%概率失去1点生命，所有伤害提高30%。",
     };
   }
-  if (kind === "emergency_shield") {
+  if (kind === "pain_rush") {
     return {
       kind,
-      title: `D道具：应急护盾${ownedSuffix}`,
-      description: "每 16 秒充能 1 层护盾（最多 1 层），可抵消一次受伤。",
+      title: `逆痛狂热${ownedSuffix}`,
+      description: "每次生命下降后，获得2.2秒攻速+22%、移速+16%。",
     };
   }
-  if (kind === "swift_steps") {
+  if (kind === "grim_resolve") {
     return {
       kind,
-      title: `E道具：疾行靴${ownedSuffix}`,
-      description: "移动速度提高 18%。",
-    };
-  }
-  if (kind === "reload_module") {
-    return {
-      kind,
-      title: `F道具：速装模组${ownedSuffix}`,
-      description: "换弹时间缩短 18%。",
-    };
-  }
-  if (kind === "scavenger_core") {
-    return {
-      kind,
-      title: `G道具：拾荒核心${ownedSuffix}`,
-      description: "经验拾取范围提高 35%，经验获取提高 20%。",
-    };
-  }
-  if (kind === "giant_rounds") {
-    return {
-      kind,
-      title: `H道具：重型弹头${ownedSuffix}`,
-      description: "子弹伤害提高 16%。",
-    };
-  }
-  if (kind === "hunter_mark") {
-    return {
-      kind,
-      title: `I道具：猎首印记${ownedSuffix}`,
-      description: "对小Boss/大Boss/最终Boss额外造成 22% 伤害。",
+      title: `不屈遗志${ownedSuffix}`,
+      description: "致命伤时保留1点生命并获得1.5秒无敌，冷却40秒。",
     };
   }
   return {
     kind,
-    title: `P道具：猎场感知${ownedSuffix}`,
-    description: "附近存在精英或Boss时：移速 +16%，换弹时间 -20%。",
+    title: `猎场感知${ownedSuffix}`,
+    description: "附近存在精英或Boss时，攻速+20%、移速+14%、换弹时间-20%。",
   };
 }
 
@@ -183,89 +151,71 @@ export function applyPassiveDrop(
   }
   levels[kind] = 1;
 
-  if (kind === "ammo_refund") {
-    passive.ammoRefundOnKillChance = 0.08;
+  if (kind === "last_stand") {
+    passive.lowHpThresholdRatio = 0.35;
+    passive.lowHpDamageMultiplier = 1.3;
+    passive.lowHpMoveMultiplier = 1.18;
     return 1;
   }
-  if (kind === "heal_on_kill") {
-    passive.healOnKillChance = 0.1;
+  if (kind === "blast_core") {
+    passive.killBlastRadius = 86;
+    passive.killBlastDamage = 28;
     return 1;
   }
-  if (kind === "phase_clock") {
-    passive.invincibleEveryMs = 18000;
-    passive.invincibleDurationMs = 1200;
-    passive.nextInvincibleAt = now + passive.invincibleEveryMs;
+  if (kind === "blood_trigger") {
+    passive.bloodTriggerChance = 0.14;
+    passive.bloodTriggerDamageMultiplier = 1.3;
     return 1;
   }
-  if (kind === "emergency_shield") {
-    passive.emergencyShieldCooldownMs = 16000;
-    passive.emergencyShieldMaxCharges = 1;
-    passive.emergencyShieldCharges = Math.min(passive.emergencyShieldMaxCharges, passive.emergencyShieldCharges + 1);
-    passive.emergencyShieldNextAt = now + passive.emergencyShieldCooldownMs;
+  if (kind === "pain_rush") {
+    passive.painRushDurationMs = 2200;
+    passive.painRushFireRateMultiplier = 1.22;
+    passive.painRushMoveMultiplier = 1.16;
+    passive.painRushUntil = now;
     return 1;
   }
-  if (kind === "swift_steps") {
-    passive.moveSpeedMultiplier = 1.18;
+  if (kind === "grim_resolve") {
+    passive.deathDefyCooldownMs = 40000;
+    passive.deathDefyInvincibleMs = 1500;
+    passive.deathDefyNextReadyAt = now;
     return 1;
   }
-  if (kind === "reload_module") {
-    passive.reloadTimeMultiplier = 0.82;
-    return 1;
-  }
-  if (kind === "scavenger_core") {
-    passive.pickupRadiusMultiplier = 1.35;
-    passive.expGainMultiplier = 1.2;
-    return 1;
-  }
-  if (kind === "giant_rounds") {
-    passive.projectileDamageMultiplier = 1.16;
-    return 1;
-  }
-  if (kind === "hunter_mark") {
-    passive.bossDamageMultiplier = 1.22;
-    return 1;
-  }
-  passive.threatSenseMoveMultiplier = 1.16;
+  passive.threatSenseMoveMultiplier = 1.14;
   passive.threatSenseReloadMultiplier = 0.8;
-  passive.threatSenseRadius = 320;
+  passive.threatSenseFireRateMultiplier = 1.2;
+  passive.threatSenseRadius = 340;
   passive.threatSenseActive = false;
   return 1;
 }
 
 export function buildPassiveDetails(passive: PassiveState, levels: PassiveLevels): string[] {
   const details: string[] = [];
-  if (levels.ammo_refund > 0) {
-    details.push(`猎弹夹：返弹 ${(passive.ammoRefundOnKillChance * 100).toFixed(0)}%`);
-  }
-  if (levels.heal_on_kill > 0) {
-    details.push(`血涌核心：回血 ${(passive.healOnKillChance * 100).toFixed(0)}%`);
-  }
-  if (levels.phase_clock > 0) {
-    details.push(`相位时钟：${(passive.invincibleEveryMs / 1000).toFixed(0)}s 触发 ${(passive.invincibleDurationMs / 1000).toFixed(1)}s 无敌`);
-  }
-  if (levels.emergency_shield > 0) {
-    details.push(`应急护盾：${(passive.emergencyShieldCooldownMs / 1000).toFixed(0)}s 充能，当前 ${passive.emergencyShieldCharges}/${passive.emergencyShieldMaxCharges}`);
-  }
-  if (levels.swift_steps > 0) {
-    details.push(`疾行靴：移速 +${Math.round((passive.moveSpeedMultiplier - 1) * 100)}%`);
-  }
-  if (levels.reload_module > 0) {
-    details.push(`速装模组：换弹 -${Math.round((1 - passive.reloadTimeMultiplier) * 100)}%`);
-  }
-  if (levels.scavenger_core > 0) {
+  if (levels.last_stand > 0) {
     details.push(
-      `拾荒核心：拾取范围 +${Math.round((passive.pickupRadiusMultiplier - 1) * 100)}%，经验 +${Math.round((passive.expGainMultiplier - 1) * 100)}%`,
+      `绝境反击：生命<=${Math.round(passive.lowHpThresholdRatio * 100)}%时，伤害+${Math.round((passive.lowHpDamageMultiplier - 1) * 100)}%，移速+${Math.round((passive.lowHpMoveMultiplier - 1) * 100)}%`,
     );
   }
-  if (levels.giant_rounds > 0) {
-    details.push(`重型弹头：子弹伤害 +${Math.round((passive.projectileDamageMultiplier - 1) * 100)}%`);
+  if (levels.blast_core > 0) {
+    details.push("裂解余震：击杀会触发一次范围爆裂。");
   }
-  if (levels.hunter_mark > 0) {
-    details.push(`猎首印记：Boss伤害 +${Math.round((passive.bossDamageMultiplier - 1) * 100)}%`);
+  if (levels.blood_trigger > 0) {
+    details.push(
+      `血契扳机：射击自损 ${(passive.bloodTriggerChance * 100).toFixed(0)}%，伤害+${Math.round((passive.bloodTriggerDamageMultiplier - 1) * 100)}%`,
+    );
+  }
+  if (levels.pain_rush > 0) {
+    details.push(
+      `逆痛狂热：受伤后 ${(passive.painRushDurationMs / 1000).toFixed(1)}s 攻速+${Math.round((passive.painRushFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.painRushMoveMultiplier - 1) * 100)}%`,
+    );
+  }
+  if (levels.grim_resolve > 0) {
+    details.push(
+      `不屈遗志：致命保命1次 冷却${(passive.deathDefyCooldownMs / 1000).toFixed(0)}s 无敌${(passive.deathDefyInvincibleMs / 1000).toFixed(1)}s`,
+    );
   }
   if (levels.threat_sensor > 0) {
     details.push(
-      `猎场感知：精英/Boss近身时 移速 +${Math.round((passive.threatSenseMoveMultiplier - 1) * 100)}%，换弹 -${Math.round((1 - passive.threatSenseReloadMultiplier) * 100)}%（${passive.threatSenseActive ? "已触发" : "未触发"}）`,
+      `猎场感知：威胁靠近时 攻速+${Math.round((passive.threatSenseFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.threatSenseMoveMultiplier - 1) * 100)}% 换弹-${Math.round((1 - passive.threatSenseReloadMultiplier) * 100)}%（${passive.threatSenseActive ? "已触发" : "未触发"}）`,
     );
   }
   return details;

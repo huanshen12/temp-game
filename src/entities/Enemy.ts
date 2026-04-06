@@ -99,6 +99,13 @@ export class Enemy {
     if (this.health <= 0) {
       this.health = 0;
       this.isDead = true;
+      this.visual.setVisible(false);
+      const body = this.sprite.body as Phaser.Physics.Arcade.Body | undefined;
+      if (body !== undefined) {
+        body.setVelocity(0, 0);
+        body.enable = false;
+      }
+      this.sprite.setVisible(false);
     }
     return applied;
   }

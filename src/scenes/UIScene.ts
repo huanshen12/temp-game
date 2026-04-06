@@ -30,6 +30,11 @@ interface HudPayload {
   bossMaxHealth: number;
 }
 
+interface ResultPayload {
+  elapsedSec: number;
+  canRevive?: boolean;
+}
+
 interface PassiveOption {
   kind: PassiveDropKind;
   title: string;
@@ -76,6 +81,13 @@ export class UIScene extends Phaser.Scene {
   private heartValue!: Phaser.GameObjects.Text;
   private mobileTimeText!: Phaser.GameObjects.Text;
   private heartSlots: HeartSlot[] = [];
+  private audioBtnBg!: Phaser.GameObjects.Rectangle;
+  private audioBtnText!: Phaser.GameObjects.Text;
+  private audioPanel?: Phaser.GameObjects.Container;
+  private audioBgmText?: Phaser.GameObjects.Text;
+  private audioSfxText?: Phaser.GameObjects.Text;
+  private audioBgm = 0.16;
+  private audioSfx = 1;
 
   public constructor() {
     super("UIScene");
@@ -135,6 +147,24 @@ export class UIScene extends Phaser.Scene {
       this.heartSlots.push({ bg, fill });
     }
 
+    this.audioBtnBg = this.add
+      .rectangle(0, 0, 72, 28, 0x0f172a, 0.88)
+      .setStrokeStyle(1, 0x93c5fd, 0.9)
+      .setScrollFactor(0)
+      .setDepth(1200)
+      .setInteractive({ useHandCursor: true });
+    this.audioBtnText = this.add
+      .text(0, 0, "音量", {
+        color: "#dbeafe",
+        fontFamily: "Segoe UI",
+        fontSize: "14px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(1201);
+    this.audioBtnBg.on("pointerdown", () => this.toggleAudioPanel());
+
     this.layoutUI();
     this.scale.on("resize", () => this.layoutUI());
     this.time.delayedCall(0, () => this.layoutUI());
@@ -150,10 +180,16 @@ export class UIScene extends Phaser.Scene {
     });
     gameEvents.on("ui:toast", ({ text, color }: { text: string; color?: string }) => this.showToast(text, color ?? "#f8fafc"));
     gameEvents.on("ui:warning", ({ text, color }: { text: string; color?: string }) => this.showWarning(text, color ?? "#fca5a5"));
+    gameEvents.on("audio:state", ({ bgm, sfx }: { bgm: number; sfx: number }) => {
+      this.audioBgm = Phaser.Math.Clamp(bgm, 0, 1);
+      this.audioSfx = Phaser.Math.Clamp(sfx, 0, 1);
+      this.refreshAudioPanelText();
+    });
     gameEvents.on("ui:showStart", () => this.openStartPanel());
-    gameEvents.on("ui:showGameOver", () => this.openResultPanel(false));
-    gameEvents.on("ui:showWin", () => this.openResultPanel(true));
+    gameEvents.on("ui:showGameOver", (payload?: ResultPayload) => this.openResultPanelV2(false, payload?.elapsedSec ?? 0, payload?.canRevive ?? false));
+    gameEvents.on("ui:showWin", (payload?: ResultPayload) => this.openResultPanelV2(true, payload?.elapsedSec ?? 0, false));
     void this.openUpgradePanelLegacy;
+    void this.openResultPanel;
   }
 
   private formatRunTime(totalSec: number): string {
@@ -195,6 +231,11 @@ export class UIScene extends Phaser.Scene {
     const h = this.scale.height;
     this.lastLayoutW = w;
     this.lastLayoutH = h;
+    this.audioBtnBg.setPosition(w - 52, this.isMobileUi ? 52 : 28);
+    this.audioBtnText.setPosition(w - 52, this.isMobileUi ? 52 : 28);
+    if (this.audioPanel != null) {
+      this.positionAudioPanel();
+    }
 
     if (this.isMobileUi) {
       this.heartPanel.setScale(0.52).setPosition(4, 4);
@@ -358,8 +399,9 @@ export class UIScene extends Phaser.Scene {
         payload.invincibleLeftMs > 0 ? `无敌剩余 ${(payload.invincibleLeftMs / 1000).toFixed(1)}s` : "无敌：未触发",
       ].join("\n"),
     );
-    const passiveText = payload.passiveDetails.length > 0 ? payload.passiveDetails.map((item) => `• ${item}`).join("\n") : "暂无被动效果";
-    this.rightText.setText(`被动技能\n${passiveText}`);
+    const rolePassive = "角色被动：20%概率追加一轮射击（不耗弹）";
+    const extraPassive = payload.passiveDetails.length > 0 ? payload.passiveDetails.join("、") : "暂无";
+    this.rightText.setText(`被动技能：\n${rolePassive}\n额外被动：${extraPassive}`);
     this.ammoText.setText(
       payload.reloading
         ? `换弹中 ${Math.round((1 - payload.reloadRatio) * 100)}%    子弹 ${payload.ammo}/${payload.maxAmmo}`
@@ -552,6 +594,88 @@ export class UIScene extends Phaser.Scene {
     gameEvents.emit("passive:selected", kind);
   }
 
+  private toggleAudioPanel(): void {
+    if (this.audioPanel != null) {
+      this.audioPanel.destroy(true);
+      this.audioPanel = undefined;
+      return;
+    }
+    const panelBg = this.add
+      .rectangle(0, 0, this.isMobileUi ? 214 : 248, this.isMobileUi ? 126 : 138, 0x020617, 0.9)
+      .setStrokeStyle(1, 0x334155, 0.95);
+    const title = this.add
+      .text(0, 0, "音量控制", { color: "#e2e8f0", fontFamily: "Segoe UI", fontSize: this.isMobileUi ? "14px" : "15px", fontStyle: "bold" })
+      .setOrigin(0.5);
+    this.audioBgmText = this.add.text(0, 0, "", { color: "#93c5fd", fontFamily: "Consolas", fontSize: this.isMobileUi ? "12px" : "13px" }).setOrigin(0.5);
+    this.audioSfxText = this.add.text(0, 0, "", { color: "#fca5a5", fontFamily: "Consolas", fontSize: this.isMobileUi ? "12px" : "13px" }).setOrigin(0.5);
+    const mkBtn = (label: string, onClick: () => void) => {
+      const b = this.add
+        .rectangle(0, 0, 28, 24, 0x1e293b, 0.95)
+        .setStrokeStyle(1, 0x64748b, 0.9)
+        .setInteractive({ useHandCursor: true });
+      const t = this.add.text(0, 0, label, { color: "#f8fafc", fontFamily: "Consolas", fontSize: "16px", fontStyle: "bold" }).setOrigin(0.5);
+      b.on("pointerdown", onClick);
+      return [b, t];
+    };
+    const [bgmMinus, bgmMinusT] = mkBtn("-", () => this.adjustAudio(-0.05, 0));
+    const [bgmPlus, bgmPlusT] = mkBtn("+", () => this.adjustAudio(0.05, 0));
+    const [sfxMinus, sfxMinusT] = mkBtn("-", () => this.adjustAudio(0, -0.05));
+    const [sfxPlus, sfxPlusT] = mkBtn("+", () => this.adjustAudio(0, 0.05));
+    this.audioPanel = this.add.container(0, 0, [
+      panelBg,
+      title,
+      this.audioBgmText,
+      this.audioSfxText,
+      bgmMinus,
+      bgmMinusT,
+      bgmPlus,
+      bgmPlusT,
+      sfxMinus,
+      sfxMinusT,
+      sfxPlus,
+      sfxPlusT,
+    ]);
+    this.audioPanel.setDepth(1300).setScrollFactor(0);
+    title.setPosition(0, -44);
+    this.audioBgmText.setPosition(0, -14);
+    this.audioSfxText.setPosition(0, 20);
+    bgmMinus.setPosition(-78, -14);
+    bgmMinusT.setPosition(-78, -14);
+    bgmPlus.setPosition(78, -14);
+    bgmPlusT.setPosition(78, -14);
+    sfxMinus.setPosition(-78, 20);
+    sfxMinusT.setPosition(-78, 20);
+    sfxPlus.setPosition(78, 20);
+    sfxPlusT.setPosition(78, 20);
+    this.positionAudioPanel();
+    this.refreshAudioPanelText();
+  }
+
+  private positionAudioPanel(): void {
+    if (this.audioPanel == null) {
+      return;
+    }
+    const x = this.scale.width - (this.isMobileUi ? 120 : 138);
+    const y = this.isMobileUi ? 130 : 108;
+    this.audioPanel.setPosition(x, y);
+  }
+
+  private refreshAudioPanelText(): void {
+    if (this.audioBgmText != null) {
+      this.audioBgmText.setText(`BGM ${Math.round(this.audioBgm * 100)}%`);
+    }
+    if (this.audioSfxText != null) {
+      this.audioSfxText.setText(`SFX ${Math.round(this.audioSfx * 100)}%`);
+    }
+  }
+
+  private adjustAudio(deltaBgm: number, deltaSfx: number): void {
+    this.audioBgm = Phaser.Math.Clamp(this.audioBgm + deltaBgm, 0, 1);
+    this.audioSfx = Phaser.Math.Clamp(this.audioSfx + deltaSfx, 0, 1);
+    this.refreshAudioPanelText();
+    gameEvents.emit("audio:set", { bgm: this.audioBgm, sfx: this.audioSfx });
+  }
+
   private showToast(text: string, color: string): void {
     this.toastText?.destroy();
     this.toastText = this.add.text(this.scale.width / 2, this.isMobileUi ? 52 : 34, text, {
@@ -659,6 +783,84 @@ export class UIScene extends Phaser.Scene {
       window.location.reload();
     });
     this.modalOverlay = this.add.container(0, 0, [backdrop, title, btn, btnText]).setDepth(5000).setScrollFactor(0);
+  }
+
+  private openResultPanelV2(win: boolean, elapsedSec: number, canRevive: boolean): void {
+    this.modalOverlay?.destroy(true);
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const backdrop = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x000000, 0.74).setInteractive();
+    const title = this.add
+      .text(cx, cy - 76, win ? "通关成功" : "挑战失败", {
+        color: win ? "#86efac" : "#fca5a5",
+        fontFamily: "Segoe UI",
+        fontSize: this.isMobileUi ? "34px" : "46px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    const surviveText = this.add
+      .text(cx, cy - 18, `生存时间：${this.formatRunTime(elapsedSec)}`, {
+        color: "#e2e8f0",
+        fontFamily: "Segoe UI",
+        fontSize: this.isMobileUi ? "20px" : "26px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    const restartY = win || !canRevive ? cy + 52 : cy + 116;
+    const restartBtn = this.add
+      .rectangle(cx, restartY, this.isMobileUi ? 220 : 260, 56, 0x2563eb, 0.95)
+      .setStrokeStyle(2, 0x93c5fd)
+      .setInteractive({ useHandCursor: true });
+    const restartText = this.add
+      .text(cx, restartY, "重新开始", {
+        color: "#eff6ff",
+        fontFamily: "Segoe UI",
+        fontSize: this.isMobileUi ? "24px" : "28px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    restartBtn.on("pointerdown", () => {
+      window.location.reload();
+    });
+
+    const parts: Phaser.GameObjects.GameObject[] = [backdrop, title, surviveText, restartBtn, restartText];
+    if (!win && canRevive) {
+      const reviveBtn = this.add
+        .rectangle(cx, cy + 48, this.isMobileUi ? 260 : 320, 52, 0x7c3aed, 0.92)
+        .setStrokeStyle(2, 0xc4b5fd)
+        .setInteractive({ useHandCursor: true });
+      const reviveText = this.add
+        .text(cx, cy + 40, "输入神秘代码复活", {
+          color: "#f5f3ff",
+          fontFamily: "Segoe UI",
+          fontSize: this.isMobileUi ? "18px" : "22px",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      const reviveHint = this.add
+        .text(cx, cy + 68, "神秘代码：作者是大帅哥", {
+          color: "#ddd6fe",
+          fontFamily: "Segoe UI",
+          fontSize: this.isMobileUi ? "13px" : "15px",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      reviveBtn.on("pointerdown", () => {
+        const code = window.prompt("请输入神秘代码：");
+        if (code == null) {
+          return;
+        }
+        if (code.trim() === "作者是大帅哥") {
+          this.modalOverlay?.destroy(true);
+          this.modalOverlay = undefined;
+          gameEvents.emit("game:reviveByCode");
+          return;
+        }
+        this.showToast("神秘代码错误", "#fca5a5");
+      });
+      parts.push(reviveBtn, reviveText, reviveHint);
+    }
+    this.modalOverlay = this.add.container(0, 0, parts).setDepth(5000).setScrollFactor(0);
   }
 
   private syncMobileHudAnchors(): void {
