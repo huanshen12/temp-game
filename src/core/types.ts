@@ -3,6 +3,7 @@ export interface PlayerStats {
   health: number;
   moveSpeed: number;
   damage: number;
+  bulletDamageMul: number;
   critChance: number;
   critMultiplier: number;
   fireRate: number;
@@ -54,8 +55,10 @@ export interface EvolutionRequirements {
 
 export interface EvolutionEffects {
   damageMul?: number;
+  bulletDamageMul?: number;
   projectileSizeMul?: number;
   projectileSpeedMul?: number;
+  moveSpeedMul?: number;
   fireRateMul?: number;
   critChanceAdd?: number;
   critMultiplierAdd?: number;
@@ -66,6 +69,7 @@ export interface EvolutionEffects {
   explosiveRadius?: number;
   explosiveDamage?: number;
   customEffect?: string;
+  knockbackMul?: number;
 }
 
 export interface EvolutionBranch {

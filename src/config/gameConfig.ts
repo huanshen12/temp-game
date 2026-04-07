@@ -1,11 +1,11 @@
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
-export const WORLD_SIZE = 3200;
+export const WORLD_SIZE = 4600;
 export const PLAYER_START_X = WORLD_SIZE / 2;
 export const PLAYER_START_Y = WORLD_SIZE / 2;
-export const PLAYER_START_EXP_TO_NEXT = 30;
+export const PLAYER_START_EXP_TO_NEXT = 27;
 export const ENEMY_SPAWN_INTERVAL_MS = 800;
-export const MAX_ENEMIES = 180;
+export const MAX_ENEMIES = 280;
 export const MAX_ORBS = 350;
 export const MAX_BULLETS = 180;
 export const MINI_BOSS_EVERY_MS = 30000;

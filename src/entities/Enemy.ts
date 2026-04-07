@@ -58,7 +58,10 @@ export class Enemy {
     this.ensureEmojiTexture(scene, textureKey, profile.emoji, profile.auraColor);
     const mobileScale = scene.sys.game.device.input.touch ? (kind === "normal" ? 1.34 : 1.2) : 1;
     const rawSize = Math.round(profile.emojiSize * mobileScale);
-    const size = rawSize % 2 === 0 ? rawSize : rawSize + 1;
+    const computedSize = rawSize % 2 === 0 ? rawSize : rawSize + 1;
+    // Boss 图标视觉放大到更有压迫感，但保持碰撞体不随之膨胀。
+    const bossVisualSize = kind === "mainBoss" ? 224 : kind === "finalBoss" ? 248 : undefined;
+    const size = kind === "miniBoss" ? 176 : bossVisualSize ?? computedSize;
     this.visual = scene.add.image(x, y, textureKey).setDisplaySize(size, size).setDepth(12);
     if (affix !== undefined) {
       this.visual.setTint(affix.tintColor);
@@ -206,7 +209,7 @@ export class Enemy {
           auraColor: "#a78bfa",
           emojiSize: 50,
           hitboxRadius: 24,
-          maxHealth: 3600,
+          maxHealth: 2300,
           moveSpeed: 88,
           contactDamage: 21,
           expReward: 240,
@@ -232,7 +235,7 @@ export class Enemy {
           auraColor: "#06b6d4",
           emojiSize: 50,
           hitboxRadius: 26,
-          maxHealth: 8600,
+          maxHealth: 6900,
           moveSpeed: 75,
           contactDamage: 24,
           expReward: 300,
@@ -282,9 +285,9 @@ export class Enemy {
           name: "Main Boss A",
           emoji: "\u{1F608}",
           auraColor: "#f97316",
-          emojiSize: 66,
-          hitboxRadius: 38,
-          maxHealth: 15600,
+          emojiSize: 84,
+          hitboxRadius: 52,
+          maxHealth: 11000,
           moveSpeed: 62,
           contactDamage: 34,
           expReward: 1080,
@@ -295,8 +298,8 @@ export class Enemy {
           name: "Main Boss B",
           emoji: "\u{1F47B}",
           auraColor: "#22d3ee",
-          emojiSize: 66,
-          hitboxRadius: 39,
+          emojiSize: 86,
+          hitboxRadius: 54,
           maxHealth: 19200,
           moveSpeed: 64,
           contactDamage: 36,
@@ -306,10 +309,10 @@ export class Enemy {
       case "final":
         return {
           name: "Final Boss",
-          emoji: "\u{1F47A}",
+          emoji: "\u{1F409}",
           auraColor: "#ef4444",
-          emojiSize: 72,
-          hitboxRadius: 48,
+          emojiSize: 104,
+          hitboxRadius: 66,
           maxHealth: 9600,
           moveSpeed: 67,
           contactDamage: 41,

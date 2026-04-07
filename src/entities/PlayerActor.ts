@@ -8,7 +8,7 @@ export class PlayerActor {
   public readonly stats: PlayerStats;
   public level = 1;
   public exp = 0;
-  public expToNext = 30;
+  public expToNext = 27;
   public isDead = false;
 
   public constructor(scene: Phaser.Scene, x: number, y: number, _color: number) {
@@ -43,9 +43,10 @@ export class PlayerActor {
       health: 100,
       moveSpeed: 190,
       damage: 16,
-      critChance: 0.08,
-      critMultiplier: 1.75,
-      fireRate: 2.1,
+      bulletDamageMul: 1,
+      critChance: 0.1,
+      critMultiplier: 1.5,
+      fireRate: 1,
       projectileCount: 1,
       projectileSpeed: 420,
       projectilePenetration: 1,
@@ -53,7 +54,7 @@ export class PlayerActor {
       maxAmmo: 8,
       reloadMs: 2000,
       expGainMultiplier: 1,
-      pickupRadius: 56,
+      pickupRadius: 68,
     };
   }
 

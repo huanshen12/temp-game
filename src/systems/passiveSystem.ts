@@ -100,7 +100,7 @@ export function getPassiveOptionByKind(levels: PassiveLevels, kind: PassiveDropK
     return {
       kind,
       title: `裂解余震${ownedSuffix}`,
-      description: "击杀敌人时触发小范围爆裂，对周围造成28点伤害。",
+      description: "击杀敌人时触发小范围爆裂，伤害随当前输出同步提升。",
     };
   }
   if (kind === "blood_trigger") {
@@ -114,7 +114,7 @@ export function getPassiveOptionByKind(levels: PassiveLevels, kind: PassiveDropK
     return {
       kind,
       title: `逆痛狂热${ownedSuffix}`,
-      description: "每次生命下降后，获得2.2秒攻速+22%、移速+16%。",
+      description: "每次生命下降后，获得2.2秒射速+22%、移速+16%。",
     };
   }
   if (kind === "grim_resolve") {
@@ -127,7 +127,7 @@ export function getPassiveOptionByKind(levels: PassiveLevels, kind: PassiveDropK
   return {
     kind,
     title: `猎场感知${ownedSuffix}`,
-    description: "附近存在精英或Boss时，攻速+20%、移速+14%、换弹时间-20%。",
+    description: "附近存在精英或Boss时，射速+20%、移速+14%、换弹时间-20%。",
   };
 }
 
@@ -159,7 +159,7 @@ export function applyPassiveDrop(
   }
   if (kind === "blast_core") {
     passive.killBlastRadius = 86;
-    passive.killBlastDamage = 28;
+    passive.killBlastDamage = 0;
     return 1;
   }
   if (kind === "blood_trigger") {
@@ -205,7 +205,7 @@ export function buildPassiveDetails(passive: PassiveState, levels: PassiveLevels
   }
   if (levels.pain_rush > 0) {
     details.push(
-      `逆痛狂热：受伤后 ${(passive.painRushDurationMs / 1000).toFixed(1)}s 攻速+${Math.round((passive.painRushFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.painRushMoveMultiplier - 1) * 100)}%`,
+      `逆痛狂热：受伤后 ${(passive.painRushDurationMs / 1000).toFixed(1)}s 射速+${Math.round((passive.painRushFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.painRushMoveMultiplier - 1) * 100)}%`,
     );
   }
   if (levels.grim_resolve > 0) {
@@ -215,7 +215,7 @@ export function buildPassiveDetails(passive: PassiveState, levels: PassiveLevels
   }
   if (levels.threat_sensor > 0) {
     details.push(
-      `猎场感知：威胁靠近时 攻速+${Math.round((passive.threatSenseFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.threatSenseMoveMultiplier - 1) * 100)}% 换弹-${Math.round((1 - passive.threatSenseReloadMultiplier) * 100)}%（${passive.threatSenseActive ? "已触发" : "未触发"}）`,
+      `猎场感知：威胁靠近时 射速+${Math.round((passive.threatSenseFireRateMultiplier - 1) * 100)}% 移速+${Math.round((passive.threatSenseMoveMultiplier - 1) * 100)}% 换弹-${Math.round((1 - passive.threatSenseReloadMultiplier) * 100)}%${passive.threatSenseActive ? "（已触发）" : "（未触发）"}`,
     );
   }
   return details;
